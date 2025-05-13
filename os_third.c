@@ -145,6 +145,13 @@ int main(int argc, char *argv[]){
             // Remove trailing newline.
             input[strcspn(input, "\n")] = '\0';
             
+            // Trim trailing spaces
+            char *end = input + strlen(input) - 1;
+            while(end > input && *end == ' ') {
+                *end = '\0';
+                end--;
+            }
+            
             if(strcmp(input, "help") == 0){
                 write(STDOUT_FILENO, "Type a number to send job to a child!\n", 38);
             }
@@ -184,7 +191,6 @@ int main(int argc, char *argv[]){
                 }
             }
         }
-        
         // Check if any child has sent back a result.
         for(int i = 0; i < n; i++){
             if(FD_ISSET(pipe_cp[i][0], &read_fds)){
@@ -198,8 +204,8 @@ int main(int argc, char *argv[]){
             }
         }
     }
-    
     free(children);
     free(pipe_pc);
     free(pipe_cp);
     return 0;
+}
