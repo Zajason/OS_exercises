@@ -23,10 +23,7 @@
 #define DEFAULT_PORT 41312
 #define DEFAULT_BUFFER_SIZE 1024
 
-/**
- * printw: formatted output using write()
- * Behaves like printf but writes directly to STDOUT_FILENO.
- */
+//βοηθητική συνάρτηση για να εκτυπώσει σε stdout
 static void printw(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -40,10 +37,7 @@ static void printw(const char *fmt, ...) {
         }
     }
 }
-
-/**
- * is_number: checks if string consists solely of digits
- */
+// βοηθητική συνάρτηση για να ελέγξει αν το string είναι αριθμός
 static bool is_number(const char *s) {
     if (s == NULL || *s == '\0') return false;
     for (const char *p = s; *p; ++p) {
@@ -77,7 +71,7 @@ int main(int argc, char *argv[]){
     }
 
     if(debug){
-        printw("connecting to %s on port %d\n", host, port);
+        printw("[DEBUG]connecting to %s on port %d\n", host, port);
     }
     
     struct hostent *server = gethostbyname(host);
@@ -103,7 +97,7 @@ int main(int argc, char *argv[]){
         exit(EXIT_INVALID_ARGS);
     }
     if(debug){
-        printw("Connected to server\n");
+        printw("[DEBUG]Connected to server\n");
     }
 
     struct pollfd fds[2];
@@ -128,12 +122,12 @@ int main(int argc, char *argv[]){
             }
             buffer[count] = '\0';
 
-            // exit command
+     
             if(strcmp(buffer, "exit\n") == 0){
                 printw("Exiting...\n");
                 break;
             }
-            // help command
+
             if(strcmp(buffer, "help\n") == 0){
                 printw("Available commands:\n");
                 printw("1. help - Show this help message\n");
@@ -143,20 +137,18 @@ int main(int argc, char *argv[]){
                 continue;
             }
 
-            // strip newline
+       
             buffer[strcspn(buffer, "\n")] = '\0';
 
-            // get command
             if(strcmp(buffer, "get") == 0){
                 if(write(sockfd, buffer, strlen(buffer)) < 0){
                     perror("write to server failed");
                     break;
                 }
-                if(debug) printw("Sent: %s\n", buffer);
+                if(debug) printw("[DEBUG]Sent: %s\n", buffer);
                 continue;
             }
 
-            // check for N name surname reason format
             char tmp[DEFAULT_BUFFER_SIZE];
             strncpy(tmp, buffer, sizeof(tmp));
             tmp[sizeof(tmp)-1] = '\0';
@@ -187,12 +179,12 @@ int main(int argc, char *argv[]){
                 break;
             }
             buffer[bytes] = '\0';
-            if(debug) printw("Received: %s\n", buffer);
+            if(debug) printw("[DEBUG]Received: %s\n", buffer);
 
             char copy_buf[DEFAULT_BUFFER_SIZE];
             memcpy(copy_buf, buffer, bytes + 1);
 
-            // parse sensor event
+           
             char *token = strtok(buffer, " ");
             int interval, light;
             float temp;
@@ -231,7 +223,7 @@ int main(int argc, char *argv[]){
                     perror("write echo failed");
                     break;
                 }
-                if(debug) printw("Echoed: %s\n", copy_buf);
+                if(debug) printw("[DEBUG]Echoed: %s\n", copy_buf);
                 struct pollfd ackfd = { .fd = sockfd, .events = POLLIN };
                 if(poll(&ackfd, 1, 3000) > 0 && (ackfd.revents & POLLIN)) {
                     int len = recv(sockfd, copy_buf, sizeof(copy_buf) - 1, 0);
