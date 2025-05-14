@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <time.h>
+#include <stdarg.h>
+#include <ctype.h>
 
 #define EXIT_INVALID_ARGS 1
 #define EXIT_MALLOC_FAILED 2
@@ -20,6 +22,35 @@
 #define DEFAULT_HOST "os4.cloud.dslab.ece.ntua.gr"
 #define DEFAULT_PORT 41312
 #define DEFAULT_BUFFER_SIZE 1024
+
+/**
+ * printw: formatted output using write()
+ * Behaves like printf but writes directly to STDOUT_FILENO.
+ */
+static void printw(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char outbuf[DEFAULT_BUFFER_SIZE];
+    int len = vsnprintf(outbuf, sizeof(outbuf), fmt, args);
+    va_end(args);
+    if (len > 0) {
+        if (write(STDOUT_FILENO, outbuf, len) < 0) {
+            perror("write to stdout failed");
+            exit(EXIT_WRITE_FAILED);
+        }
+    }
+}
+
+/**
+ * is_number: checks if string consists solely of digits
+ */
+static bool is_number(const char *s) {
+    if (s == NULL || *s == '\0') return false;
+    for (const char *p = s; *p; ++p) {
+        if (!isdigit((unsigned char)*p)) return false;
+    }
+    return true;
+}
 
 int main(int argc, char *argv[]){ 
     char *host = DEFAULT_HOST;
@@ -37,18 +68,22 @@ int main(int argc, char *argv[]){
             debug = true;
         }
         else{
-            fprintf(stderr, "Usage: %s [--host HOST] [--port PORT] [--debug]\n", argv[0]);
+            const char *usage = "Usage: %s [--host HOST] [--port PORT] [--debug]\n";
+            char msg[256];
+            snprintf(msg, sizeof(msg), usage, argv[0]);
+            write(STDERR_FILENO, msg, strlen(msg));
             exit(EXIT_INVALID_ARGS);
         }
     }
 
     if(debug){
-        printf("connecting to %s on port %d\n", host, port);
+        printw("connecting to %s on port %d\n", host, port);
     }
     
     struct hostent *server = gethostbyname(host);
     if(server == NULL){
-        fprintf(stderr, "Error resolving host\n");
+        const char *err = "Error resolving host\n";
+        write(STDERR_FILENO, err, strlen(err));
         exit(EXIT_INVALID_ARGS);
     }
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -68,7 +103,7 @@ int main(int argc, char *argv[]){
         exit(EXIT_INVALID_ARGS);
     }
     if(debug){
-        printf("Connected to server\n");
+        printw("Connected to server\n");
     }
 
     struct pollfd fds[2];
@@ -92,34 +127,67 @@ int main(int argc, char *argv[]){
                 break;
             }
             buffer[count] = '\0';
+
+            // exit command
             if(strcmp(buffer, "exit\n") == 0){
-                printf("Exiting...\n");
+                printw("Exiting...\n");
                 break;
             }
+            // help command
             if(strcmp(buffer, "help\n") == 0){
-                printf("Available commands: \n");
-                printf("1. help - Show this help message\n");
-                printf("2. exit - Exit the program\n");
-                printf("3. get - Get data from the server\n");
-                printf("4. N name surname reason - Exit request\n");
+                printw("Available commands:\n");
+                printw("1. help - Show this help message\n");
+                printw("2. exit - Exit the program\n");
+                printw("3. get - Get data from the server\n");
+                printw("4. N name surname reason - Exit request\n");
                 continue;
             }
-            buffer[strcspn(buffer, "\n")] = '\0';    
-            if(write(sockfd, buffer, strlen(buffer)) < 0){
-                perror("write to server failed");
-                break;
+
+            // strip newline
+            buffer[strcspn(buffer, "\n")] = '\0';
+
+            // get command
+            if(strcmp(buffer, "get") == 0){
+                if(write(sockfd, buffer, strlen(buffer)) < 0){
+                    perror("write to server failed");
+                    break;
+                }
+                if(debug) printw("Sent: %s\n", buffer);
+                continue;
             }
-            if (debug) printf("Sent: %s\n", buffer);
+
+            // check for N name surname reason format
+            char tmp[DEFAULT_BUFFER_SIZE];
+            strncpy(tmp, buffer, sizeof(tmp));
+            tmp[sizeof(tmp)-1] = '\0';
+            char *tokens[4];
+            int tcount = 0;
+            char *tok = strtok(tmp, " ");
+            while(tok != NULL && tcount < 4){
+                tokens[tcount++] = tok;
+                tok = strtok(NULL, " ");
+            }
+            if(tcount == 4 && is_number(tokens[0])){
+                if(write(sockfd, buffer, strlen(buffer)) < 0){
+                    perror("write to server failed");
+                    break;
+                }
+                if(debug) printw("Sent: %s\n", buffer);
+            } else {
+                printw("try again\n");
+            }
+            continue;
         }
+
         if(fds[1].revents & POLLIN){
             int bytes = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
-            if (bytes <= 0) {
-                if (bytes == 0) printf("Server closed the connection.\n");
+            if(bytes <= 0) {
+                if(bytes == 0) printw("Server closed the connection.\n");
                 else perror("recv failed");
                 break;
             }
             buffer[bytes] = '\0';
-            if (debug) printf("Received: %s\n", buffer);
+            if(debug) printw("Received: %s\n", buffer);
 
             char copy_buf[DEFAULT_BUFFER_SIZE];
             memcpy(copy_buf, buffer, bytes + 1);
@@ -133,43 +201,43 @@ int main(int argc, char *argv[]){
             char time_str[64];
             bool is_event = false;
 
-            if (token != NULL) {
+            if(token != NULL) {
                 interval = atoi(token);
                 token = strtok(NULL, " ");
-                if (token != NULL) {
+                if(token != NULL) {
                     light = atoi(token);
                     token = strtok(NULL, " ");
-                    if (token != NULL) {
+                    if(token != NULL) {
                         temp = atoi(token) / 100.0f;
                         token = strtok(NULL, " ");
-                        if (token != NULL) {
+                        if(token != NULL) {
                             timestamp = atol(token);
                             tm_info = localtime(&timestamp);
                             strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
-                            printf("Latest event:\n");
-                            printf("Interval (%d)\n", interval);
-                            printf("Temperature is: %.2f\n", temp);
-                            printf("Light level is: %d\n", light);
-                            printf("Timestamp is: %s\n", time_str);
+                            printw("Latest event:\n");
+                            printw("Interval (%d)\n", interval);
+                            printw("Temperature is: %.2f\n", temp);
+                            printw("Light level is: %d\n", light);
+                            printw("Timestamp is: %s\n", time_str);
                             is_event = true;
                         }
                     }
                 }
             }
 
-            if (!is_event) {
-                printf("Server: %s\n", copy_buf);
-                if (write(sockfd, copy_buf, strlen(copy_buf)) < 0) {
+            if(!is_event) {
+                printw("Server: %s\n", copy_buf);
+                if(write(sockfd, copy_buf, strlen(copy_buf)) < 0) {
                     perror("write echo failed");
                     break;
                 }
-                if (debug) printf("Echoed: %s\n", copy_buf);
+                if(debug) printw("Echoed: %s\n", copy_buf);
                 struct pollfd ackfd = { .fd = sockfd, .events = POLLIN };
-                if (poll(&ackfd, 1, 3000) > 0 && (ackfd.revents & POLLIN)) {
+                if(poll(&ackfd, 1, 3000) > 0 && (ackfd.revents & POLLIN)) {
                     int len = recv(sockfd, copy_buf, sizeof(copy_buf) - 1, 0);
-                    if (len > 0) {
+                    if(len > 0) {
                         copy_buf[len] = '\0';
-                        printf("ACK from server: %s\n", copy_buf);
+                        printw("ACK from server: %s\n", copy_buf);
                     }
                 }
             }
